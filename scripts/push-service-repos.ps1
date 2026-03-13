@@ -25,8 +25,7 @@ $repoMap = @(
     @{ Name = "hm-notification-service"; Folder = "services" },
     @{ Name = "customer-portal"; Folder = "ui" },
     @{ Name = "admin-portal"; Folder = "ui" },
-    @{ Name = "terraform-infra"; Folder = "platform" },
-    @{ Name = "terraform-modules"; Folder = "platform" }
+    @{ Name = "terraform-infra"; Folder = "platform" }
 )
 
 foreach ($entry in $repoMap) {
