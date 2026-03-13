@@ -1,0 +1,157 @@
+name: Deploy Dev
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.gitversion.outputs.semVer }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: api-gateway
+            dockerfile: docker/api-gateway/Dockerfile
+            project_path: src/services/api-gateway/ApiGateway/ApiGateway.csproj
+          - name: auth-service
+            dockerfile: docker/auth-service/Dockerfile
+            project_path: src/services/auth-service/AuthService/AuthService.csproj
+          - name: patient-service
+            dockerfile: docker/patient-service/Dockerfile
+            project_path: src/services/patient-service/PatientService/PatientService.csproj
+          - name: doctor-service
+            dockerfile: docker/doctor-service/Dockerfile
+            project_path: src/services/doctor-service/DoctorService/DoctorService.csproj
+          - name: appointment-service
+            dockerfile: docker/appointment-service/Dockerfile
+            project_path: src/services/appointment-service/AppointmentService/AppointmentService.csproj
+          - name: medical-records-service
+            dockerfile: docker/medical-records-service/Dockerfile
+            project_path: src/services/medical-records-service/MedicalRecordsService/MedicalRecordsService.csproj
+          - name: department-service
+            dockerfile: docker/department-service/Dockerfile
+            project_path: src/services/department-service/DepartmentService/DepartmentService.csproj
+          - name: staff-service
+            dockerfile: docker/staff-service/Dockerfile
+            project_path: src/services/staff-service/StaffService/StaffService.csproj
+          - name: notification-service
+            dockerfile: docker/notification-service/Dockerfile
+            project_path: src/services/notification-service/NotificationService/NotificationService.csproj
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup GitVersion
+        uses: gittools/actions/gitversion/setup@v3
+        with:
+          versionSpec: "6.x"
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve AWS account ID
+        id: aws_account
+        run: echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          if ! aws ecr describe-repositories --repository-names "${{ matrix.service.name }}" >/dev/null 2>&1; then
+            aws ecr create-repository --repository-name "${{ matrix.service.name }}"
+          fi
+
+      - name: Detect project path
+        id: project_exists
+        run: |
+          if [ -f "${{ matrix.service.project_path }}" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Project path not found: ${{ matrix.service.project_path }}"
+          fi
+
+      - name: Build and push image
+        if: steps.project_exists.outputs.skip == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          build-args: |
+            PROJECT_PATH=${{ matrix.service.project_path }}
+          tags: |
+            ${{ steps.aws_account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ matrix.service.name }}:${{ steps.gitversion.outputs.semVer }}
+            ${{ steps.aws_account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ matrix.service.name }}:${{ steps.gitversion.outputs.majorMinorPatch }}
+            ${{ steps.aws_account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ matrix.service.name }}:sha-${{ github.sha }}
+            ${{ steps.aws_account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ matrix.service.name }}:dev-latest
+
+      - name: Skipped service notice
+        if: steps.project_exists.outputs.skip == 'true'
+        run: echo "Skipped ${{ matrix.service.name }} because source project is not present."
+
+  terraform-apply-dev:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: infra/terraform/environments/dev
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          TF_STATE_KEY: hospital-mgmt/dev/terraform.tfstate
+        run: |
+          if [ -n "$TF_STATE_BUCKET" ] && [ -n "$TF_LOCK_TABLE" ]; then
+            terraform init \
+              -backend-config="bucket=$TF_STATE_BUCKET" \
+              -backend-config="key=$TF_STATE_KEY" \
+              -backend-config="region=${{ env.AWS_REGION }}" \
+              -backend-config="dynamodb_table=$TF_LOCK_TABLE" \
+              -backend-config="encrypt=true"
+          else
+            terraform init
+          fi
+
+      - name: Terraform apply (dev)
+        working-directory: infra/terraform/environments/dev
+        run: |
+          terraform apply -auto-approve \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="image_tag=${{ needs.build-and-push.outputs.image_tag }}"
