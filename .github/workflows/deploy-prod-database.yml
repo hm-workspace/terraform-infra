@@ -62,6 +62,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
 
           def parse_json_list(raw_value: str, default_value):
@@ -69,10 +70,22 @@ jobs:
               if not value:
                   return default_value
               if value.startswith("["):
-                parsed = json.loads(value)
-                if not isinstance(parsed, list):
-                  raise ValueError(f"Expected JSON array, got: {value}")
-                return parsed
+                normalized = re.sub(r",\s*\]", "]", value, flags=re.S)
+                try:
+                  parsed = json.loads(normalized)
+                  if not isinstance(parsed, list):
+                    raise ValueError(f"Expected JSON array, got: {value}")
+                  return parsed
+                except json.JSONDecodeError:
+                  pass
+              cleaned = value.replace("[", "").replace("]", "")
+              items = []
+              for part in re.split(r"[\n,]", cleaned):
+                  token = part.strip().strip('"').strip("'")
+                  if token:
+                      items.append(token)
+              if items:
+                  return items
               return [item.strip() for item in value.split(",") if item.strip()]
 
           data = {
