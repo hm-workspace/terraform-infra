@@ -7,20 +7,18 @@ permissions:
   id-token: write
   contents: read
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-  TF_VAR_project_name: ${{ vars.DB_PROJECT_NAME || 'hospital-mgmt' }}
-  TF_VAR_vpc_id: ${{ vars.PROD_DB_VPC_ID }}
-  TF_VAR_private_subnet_ids: ${{ vars.PROD_DB_PRIVATE_SUBNET_IDS }}
-  TF_VAR_allowed_cidr_blocks: ${{ vars.PROD_DB_ALLOWED_CIDRS || '["10.30.0.0/16"]' }}
-  TF_VAR_db_username: ${{ vars.PROD_DB_USERNAME || 'adminuser' }}
-  TF_VAR_db_password: ${{ secrets.PROD_DB_PASSWORD }}
-
 jobs:
   terraform-apply-prod-database:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DB_PROJECT_NAME: ${{ vars.DB_PROJECT_NAME }}
+      PROD_DB_VPC_ID: ${{ vars.PROD_DB_VPC_ID }}
+      PROD_DB_PRIVATE_SUBNET_IDS: ${{ vars.PROD_DB_PRIVATE_SUBNET_IDS }}
+      PROD_DB_ALLOWED_CIDRS: ${{ vars.PROD_DB_ALLOWED_CIDRS }}
+      PROD_DB_USERNAME: ${{ vars.PROD_DB_USERNAME }}
+      PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -39,18 +37,54 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TF_VAR_vpc_id}" ]; then
+          if [ -z "${AWS_REGION}" ]; then
+            echo "Missing vars.AWS_REGION"
+            exit 1
+          fi
+          if [ -z "${PROD_DB_VPC_ID}" ]; then
             echo "Missing vars.PROD_DB_VPC_ID"
             exit 1
           fi
-          if [ -z "${TF_VAR_private_subnet_ids}" ]; then
+          if [ -z "${PROD_DB_PRIVATE_SUBNET_IDS}" ]; then
             echo "Missing vars.PROD_DB_PRIVATE_SUBNET_IDS (example: [\"subnet-a\",\"subnet-b\"])"
             exit 1
           fi
-          if [ -z "${TF_VAR_db_password}" ]; then
+          if [ -z "${PROD_DB_PASSWORD}" ]; then
             echo "Missing secrets.PROD_DB_PASSWORD"
             exit 1
           fi
+
+      - name: Create Terraform variable file
+        shell: bash
+        working-directory: terraform/environments/prod-database
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def parse_json_list(raw_value: str, default_value):
+              value = (raw_value or "").strip()
+              if not value:
+                  return default_value
+              parsed = json.loads(value)
+              if not isinstance(parsed, list):
+                  raise ValueError(f"Expected JSON array, got: {value}")
+              return parsed
+
+          data = {
+              "aws_region": os.environ["AWS_REGION"],
+              "project_name": (os.environ.get("DB_PROJECT_NAME") or "hospital-mgmt").strip(),
+              "vpc_id": os.environ["PROD_DB_VPC_ID"],
+              "private_subnet_ids": parse_json_list(os.environ.get("PROD_DB_PRIVATE_SUBNET_IDS"), []),
+              "allowed_cidr_blocks": parse_json_list(os.environ.get("PROD_DB_ALLOWED_CIDRS"), ["10.30.0.0/16"]),
+              "db_username": (os.environ.get("PROD_DB_USERNAME") or "adminuser").strip(),
+              "db_password": os.environ["PROD_DB_PASSWORD"],
+          }
+
+          Path("github.auto.tfvars.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Terraform init (prod-database)
         working-directory: terraform/environments/prod-database
@@ -107,12 +141,12 @@ jobs:
           - RDS Identifier: ${{ steps.handoff.outputs.identifier }}
           - Endpoint: ${{ steps.handoff.outputs.endpoint }}
           - Port: ${{ steps.handoff.outputs.port }}
-          - Username: ${{ env.TF_VAR_db_username }}
+          - Username: ${{ env.PROD_DB_USERNAME || 'adminuser' }}
 
           Update hm-database repository environment **prod** secrets with:
 
           - DB_SERVER = ${{ steps.handoff.outputs.endpoint }},${{ steps.handoff.outputs.port }}
-          - DB_USERNAME = ${{ env.TF_VAR_db_username }}
+          - DB_USERNAME = ${{ env.PROD_DB_USERNAME || 'adminuser' }}
           - DB_PASSWORD = (same value as PROD_DB_PASSWORD secret from this repo)
           EOF
 

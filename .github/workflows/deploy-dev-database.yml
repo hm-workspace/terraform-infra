@@ -14,20 +14,18 @@ permissions:
   id-token: write
   contents: read
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-  TF_VAR_project_name: ${{ vars.DB_PROJECT_NAME || 'hospital-mgmt' }}
-  TF_VAR_vpc_id: ${{ vars.DEV_DB_VPC_ID }}
-  TF_VAR_private_subnet_ids: ${{ vars.DEV_DB_PRIVATE_SUBNET_IDS }}
-  TF_VAR_allowed_cidr_blocks: ${{ vars.DEV_DB_ALLOWED_CIDRS || '["10.20.0.0/16"]' }}
-  TF_VAR_db_username: ${{ vars.DEV_DB_USERNAME || 'adminuser' }}
-  TF_VAR_db_password: ${{ secrets.DEV_DB_PASSWORD }}
-
 jobs:
   terraform-apply-dev-database:
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DB_PROJECT_NAME: ${{ vars.DB_PROJECT_NAME }}
+      DEV_DB_VPC_ID: ${{ vars.DEV_DB_VPC_ID }}
+      DEV_DB_PRIVATE_SUBNET_IDS: ${{ vars.DEV_DB_PRIVATE_SUBNET_IDS }}
+      DEV_DB_ALLOWED_CIDRS: ${{ vars.DEV_DB_ALLOWED_CIDRS }}
+      DEV_DB_USERNAME: ${{ vars.DEV_DB_USERNAME }}
+      DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -46,18 +44,54 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TF_VAR_vpc_id}" ]; then
+          if [ -z "${AWS_REGION}" ]; then
+            echo "Missing vars.AWS_REGION"
+            exit 1
+          fi
+          if [ -z "${DEV_DB_VPC_ID}" ]; then
             echo "Missing vars.DEV_DB_VPC_ID"
             exit 1
           fi
-          if [ -z "${TF_VAR_private_subnet_ids}" ]; then
+          if [ -z "${DEV_DB_PRIVATE_SUBNET_IDS}" ]; then
             echo "Missing vars.DEV_DB_PRIVATE_SUBNET_IDS (example: [\"subnet-a\",\"subnet-b\"])"
             exit 1
           fi
-          if [ -z "${TF_VAR_db_password}" ]; then
+          if [ -z "${DEV_DB_PASSWORD}" ]; then
             echo "Missing secrets.DEV_DB_PASSWORD"
             exit 1
           fi
+
+      - name: Create Terraform variable file
+        shell: bash
+        working-directory: terraform/environments/dev-database
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def parse_json_list(raw_value: str, default_value):
+              value = (raw_value or "").strip()
+              if not value:
+                  return default_value
+              parsed = json.loads(value)
+              if not isinstance(parsed, list):
+                  raise ValueError(f"Expected JSON array, got: {value}")
+              return parsed
+
+          data = {
+              "aws_region": os.environ["AWS_REGION"],
+              "project_name": (os.environ.get("DB_PROJECT_NAME") or "hospital-mgmt").strip(),
+              "vpc_id": os.environ["DEV_DB_VPC_ID"],
+              "private_subnet_ids": parse_json_list(os.environ.get("DEV_DB_PRIVATE_SUBNET_IDS"), []),
+              "allowed_cidr_blocks": parse_json_list(os.environ.get("DEV_DB_ALLOWED_CIDRS"), ["10.20.0.0/16"]),
+              "db_username": (os.environ.get("DEV_DB_USERNAME") or "adminuser").strip(),
+              "db_password": os.environ["DEV_DB_PASSWORD"],
+          }
+
+          Path("github.auto.tfvars.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Terraform init (dev-database)
         working-directory: terraform/environments/dev-database
@@ -114,12 +148,12 @@ jobs:
           - RDS Identifier: ${{ steps.handoff.outputs.identifier }}
           - Endpoint: ${{ steps.handoff.outputs.endpoint }}
           - Port: ${{ steps.handoff.outputs.port }}
-          - Username: ${{ env.TF_VAR_db_username }}
+          - Username: ${{ env.DEV_DB_USERNAME || 'adminuser' }}
 
           Update hm-database repository environment **dev** secrets with:
 
           - DB_SERVER = ${{ steps.handoff.outputs.endpoint }},${{ steps.handoff.outputs.port }}
-          - DB_USERNAME = ${{ env.TF_VAR_db_username }}
+          - DB_USERNAME = ${{ env.DEV_DB_USERNAME || 'adminuser' }}
           - DB_PASSWORD = (same value as DEV_DB_PASSWORD secret from this repo)
           EOF
 
