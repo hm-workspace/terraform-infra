@@ -88,3 +88,39 @@ jobs:
       - name: Show database outputs
         working-directory: terraform/environments/dev-database
         run: terraform output
+
+      - name: Capture handoff values
+        id: handoff
+        shell: bash
+        working-directory: terraform/environments/dev-database
+        run: |
+          set -euo pipefail
+          ENDPOINT="$(terraform output -raw sqlserver_endpoint)"
+          PORT="$(terraform output -raw sqlserver_port)"
+          IDENTIFIER="$(terraform output -raw sqlserver_identifier)"
+
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          echo "identifier=$IDENTIFIER" >> "$GITHUB_OUTPUT"
+
+      - name: Publish hm-database handoff summary
+        shell: bash
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Dev Database Handoff
+
+          Terraform successfully applied the dev SQL Server stack.
+
+          - RDS Identifier: ${{ steps.handoff.outputs.identifier }}
+          - Endpoint: ${{ steps.handoff.outputs.endpoint }}
+          - Port: ${{ steps.handoff.outputs.port }}
+          - Username: ${{ env.TF_VAR_db_username }}
+
+          Update hm-database repository environment **dev** secrets with:
+
+          - DB_SERVER = ${{ steps.handoff.outputs.endpoint }},${{ steps.handoff.outputs.port }}
+          - DB_USERNAME = ${{ env.TF_VAR_db_username }}
+          - DB_PASSWORD = (same value as DEV_DB_PASSWORD secret from this repo)
+          EOF
+
+          echo "::notice title=hm-database handoff::Use endpoint ${{ steps.handoff.outputs.endpoint }}:${{ steps.handoff.outputs.port }} in hm-database dev secrets."
