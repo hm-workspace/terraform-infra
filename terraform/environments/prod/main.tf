@@ -16,6 +16,14 @@ module "platform" {
       desired_count     = 2
       cpu               = 512
       memory            = 1024
+      path_pattern      = "/api/*"
+      health_check_path = "/health"
+    }
+    "portal" = {
+      container_port    = 80
+      desired_count     = 2
+      cpu               = 512
+      memory            = 1024
       path_pattern      = "/*"
       health_check_path = "/health"
     }
