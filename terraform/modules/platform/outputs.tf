@@ -15,3 +15,13 @@ output "ecr_repository_urls" {
     service_name => "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${service_name}"
   }
 }
+
+output "vpc_id" {
+  description = "VPC ID created for this environment."
+  value       = aws_vpc.this.id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs created for this environment."
+  value       = [for key in sort(keys(aws_subnet.private)) : aws_subnet.private[key].id]
+}
