@@ -14,11 +14,47 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform format check
+      - name: Find changed Terraform files
+        id: changed_tf
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          CHANGED_TF="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -E '^terraform/.*\.tf$' || true)"
+
+          {
+            echo "files<<EOF"
+            echo "$CHANGED_TF"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Terraform format check (changed files)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILES="${{ steps.changed_tf.outputs.files }}"
+          if [ -z "$FILES" ]; then
+            echo "No Terraform files changed in this pull request."
+            exit 0
+          fi
+
+          if ! FMT_OUTPUT="$(terraform fmt -check $FILES 2>&1)"; then
+            echo "Terraform formatting check failed. Files needing formatting:"
+            echo "$FMT_OUTPUT"
+            exit 1
+          fi
+          echo "Terraform formatting check passed for changed files."
+
+      - name: Terraform format check (all files)
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
