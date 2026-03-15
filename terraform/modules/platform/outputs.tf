@@ -11,7 +11,7 @@ output "cluster_name" {
 output "ecr_repository_urls" {
   description = "ECR repository URLs by service name."
   value = {
-    for service_name, repo in aws_ecr_repository.service :
-    service_name => repo.repository_url
+    for service_name in sort(keys(var.services)) :
+    service_name => "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${service_name}"
   }
 }

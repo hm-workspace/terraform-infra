@@ -2,11 +2,26 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
-  service_keys = sort(keys(var.services))
-  priorities = {
-    for idx, key in local.service_keys : key => key == "api-gateway" ? 49999 : idx + 10
+  service_keys                = sort(keys(var.services))
+  service_keys_without_portal = [for key in local.service_keys : key if key != "portal"]
+
+  # Keep existing priorities stable and assign portal a fixed high priority.
+  priorities = merge(
+    {
+      for idx, key in local.service_keys_without_portal :
+      key => key == "api-gateway" ? 49999 : idx + 10
+    },
+    contains(local.service_keys, "portal") ? { portal = 40000 } : {},
+  )
+
+  ecr_repository_urls = {
+    for key in local.service_keys :
+    key => "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${key}"
   }
+
   common_tags = merge(var.tags, {
     Project     = var.project_name
     Environment = var.environment
@@ -143,7 +158,10 @@ resource "aws_security_group" "ecs" {
 }
 
 resource "aws_ecr_repository" "service" {
-  for_each = var.services
+  for_each = {
+    for service_name, service in var.services :
+    service_name => service if service_name != "portal"
+  }
 
   name                 = each.key
   image_tag_mutability = "MUTABLE"
@@ -279,7 +297,7 @@ resource "aws_ecs_task_definition" "service" {
   container_definitions = jsonencode([
     {
       name      = each.key
-      image     = "${aws_ecr_repository.service[each.key].repository_url}:${var.image_tag}"
+      image     = "${local.ecr_repository_urls[each.key]}:${var.image_tag}"
       essential = true
       portMappings = [
         {
