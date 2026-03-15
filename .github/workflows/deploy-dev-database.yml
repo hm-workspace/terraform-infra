@@ -30,8 +30,8 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
       DB_PROJECT_NAME: ${{ vars.DB_PROJECT_NAME }}
-      DEV_DB_VPC_ID: ${{ github.event.inputs.vpc_id || vars.DEV_DB_VPC_ID }}
-      DEV_DB_PRIVATE_SUBNET_IDS: ${{ github.event.inputs.private_subnet_ids || vars.DEV_DB_PRIVATE_SUBNET_IDS }}
+      DEV_DB_VPC_ID: ${{ github.event.inputs.vpc_id || vars.DEV_DB_VPC_ID || secrets.DEV_DB_VPC_ID }}
+      DEV_DB_PRIVATE_SUBNET_IDS: ${{ github.event.inputs.private_subnet_ids || vars.DEV_DB_PRIVATE_SUBNET_IDS || secrets.DEV_DB_PRIVATE_SUBNET_IDS }}
       DEV_DB_ALLOWED_CIDRS: ${{ vars.DEV_DB_ALLOWED_CIDRS }}
       DEV_DB_USERNAME: ${{ vars.DEV_DB_USERNAME }}
       DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD || secrets.DB_PASSWORD || secrets.SQLSERVER_PASSWORD }}
