@@ -88,6 +88,18 @@ jobs:
                   return items
               return [item.strip() for item in value.split(",") if item.strip()]
 
+              def validate_db_password(raw_value: str):
+                value = raw_value or ""
+                if not (8 <= len(value) <= 128):
+                  raise ValueError("DB password must be 8-128 characters long.")
+                invalid = sorted({ch for ch in value if ch in {'/', '@', '"', ' '} or not (33 <= ord(ch) <= 126)})
+                if invalid:
+                  printable = ", ".join(repr(ch) for ch in invalid)
+                  raise ValueError(f"DB password contains invalid characters for RDS SQL Server: {printable}")
+
+              db_password = os.environ["PROD_DB_PASSWORD"]
+              validate_db_password(db_password)
+
           data = {
               "aws_region": os.environ["AWS_REGION"],
               "project_name": (os.environ.get("DB_PROJECT_NAME") or "hospital-mgmt").strip(),
@@ -95,7 +107,7 @@ jobs:
               "private_subnet_ids": parse_json_list(os.environ.get("PROD_DB_PRIVATE_SUBNET_IDS"), []),
               "allowed_cidr_blocks": parse_json_list(os.environ.get("PROD_DB_ALLOWED_CIDRS"), ["10.30.0.0/16"]),
               "db_username": (os.environ.get("PROD_DB_USERNAME") or "adminuser").strip(),
-              "db_password": os.environ["PROD_DB_PASSWORD"],
+                "db_password": db_password,
           }
 
           Path("github.auto.tfvars.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

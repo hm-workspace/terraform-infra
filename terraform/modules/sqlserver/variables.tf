@@ -33,6 +33,11 @@ variable "db_password" {
   description = "Master password"
   type        = string
   sensitive   = true
+
+  validation {
+    condition = can(regex("^[!-~]{8,128}$", var.db_password)) && !can(regex("[\"/@]", var.db_password))
+    error_message = "db_password must be 8-128 printable ASCII characters and cannot contain space, '/', '@', or '\"'."
+  }
 }
 
 variable "engine" {
