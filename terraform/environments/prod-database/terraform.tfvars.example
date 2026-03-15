@@ -9,7 +9,8 @@ db_username = "adminuser"
 db_password = "REPLACE_ME"
 
 engine = "sqlserver-se"
-engine_version = "15.00.4435.7.v1"
+# Optional: set only when you need a specific supported version in your region.
+# engine_version = "15.00.xxxx.x.v1"
 instance_class = "db.m5.large"
 allocated_storage = 100
 multi_az = true

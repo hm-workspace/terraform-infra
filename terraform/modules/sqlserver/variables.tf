@@ -44,7 +44,8 @@ variable "engine" {
 variable "engine_version" {
   description = "RDS SQL Server engine version"
   type        = string
-  default     = "15.00.4435.7.v1"
+  default     = null
+  nullable    = true
 }
 
 variable "instance_class" {
