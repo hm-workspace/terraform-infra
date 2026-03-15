@@ -54,7 +54,7 @@ resource "aws_db_instance" "sqlserver" {
   deletion_protection        = var.deletion_protection
   skip_final_snapshot        = false
   copy_tags_to_snapshot      = true
-  publicly_accessible        = false
+  publicly_accessible        = var.publicly_accessible
   vpc_security_group_ids     = [aws_security_group.sqlserver.id]
   db_subnet_group_name       = aws_db_subnet_group.sqlserver.name
   auto_minor_version_upgrade = true

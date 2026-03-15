@@ -82,3 +82,9 @@ variable "deletion_protection" {
   type        = bool
   default     = true
 }
+
+variable "publicly_accessible" {
+  description = "Whether the RDS SQL Server instance should be publicly accessible"
+  type        = bool
+  default     = false
+}

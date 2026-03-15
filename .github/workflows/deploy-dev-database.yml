@@ -33,6 +33,7 @@ jobs:
       DEV_DB_VPC_ID: ${{ github.event.inputs.vpc_id || vars.DEV_DB_VPC_ID || secrets.DEV_DB_VPC_ID }}
       DEV_DB_PRIVATE_SUBNET_IDS: ${{ github.event.inputs.private_subnet_ids || vars.DEV_DB_PRIVATE_SUBNET_IDS || secrets.DEV_DB_PRIVATE_SUBNET_IDS }}
       DEV_DB_ALLOWED_CIDRS: ${{ vars.DEV_DB_ALLOWED_CIDRS }}
+      DEV_DB_PUBLICLY_ACCESSIBLE: ${{ vars.DEV_DB_PUBLICLY_ACCESSIBLE || 'true' }}
       DEV_DB_USERNAME: ${{ vars.DEV_DB_USERNAME }}
       DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD || secrets.DB_PASSWORD || secrets.SQLSERVER_PASSWORD }}
 
@@ -55,6 +56,10 @@ jobs:
           set -euo pipefail
           if [ -z "${DEV_DB_PASSWORD}" ]; then
             echo "Missing DB password secret. Set one of: DEV_DB_PASSWORD, DB_PASSWORD, SQLSERVER_PASSWORD"
+            exit 1
+          fi
+          if [[ "${DEV_DB_PUBLICLY_ACCESSIBLE,,}" == "true" ]] && [ -z "${DEV_DB_ALLOWED_CIDRS}" ]; then
+            echo "For SSMS public access, set vars.DEV_DB_ALLOWED_CIDRS to your client IP CIDR, e.g. [\"203.0.113.10/32\"]"
             exit 1
           fi
 
@@ -182,6 +187,16 @@ jobs:
                   printable = ", ".join(repr(ch) for ch in invalid)
                   raise ValueError(f"DB password contains invalid characters for RDS SQL Server: {printable}")
 
+            def parse_bool(raw_value: str, default_value: bool):
+              value = (raw_value or "").strip().lower()
+              if not value:
+                return default_value
+              if value in {"1", "true", "yes", "y", "on"}:
+                return True
+              if value in {"0", "false", "no", "n", "off"}:
+                return False
+              raise ValueError(f"Invalid boolean value: {raw_value}")
+
           db_password = os.environ["DEV_DB_PASSWORD"]
           validate_db_password(db_password)
 
@@ -191,6 +206,7 @@ jobs:
               "vpc_id": os.environ["RESOLVED_VPC_ID"],
               "private_subnet_ids": parse_json_list(os.environ.get("RESOLVED_PRIVATE_SUBNET_IDS"), []),
               "allowed_cidr_blocks": parse_json_list(os.environ.get("DEV_DB_ALLOWED_CIDRS"), ["10.20.0.0/16"]),
+                "publicly_accessible": parse_bool(os.environ.get("DEV_DB_PUBLICLY_ACCESSIBLE"), True),
               "db_username": (os.environ.get("DEV_DB_USERNAME") or "adminuser").strip(),
               "db_password": db_password,
           }
@@ -201,6 +217,7 @@ jobs:
           AWS_REGION: ${{ env.AWS_REGION }}
           DB_PROJECT_NAME: ${{ env.DB_PROJECT_NAME }}
           DEV_DB_ALLOWED_CIDRS: ${{ env.DEV_DB_ALLOWED_CIDRS }}
+          DEV_DB_PUBLICLY_ACCESSIBLE: ${{ env.DEV_DB_PUBLICLY_ACCESSIBLE }}
           DEV_DB_USERNAME: ${{ env.DEV_DB_USERNAME }}
           DEV_DB_PASSWORD: ${{ env.DEV_DB_PASSWORD }}
           RESOLVED_VPC_ID: ${{ steps.resolve_network.outputs.vpc_id }}

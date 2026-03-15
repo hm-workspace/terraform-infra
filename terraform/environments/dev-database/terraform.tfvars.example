@@ -16,3 +16,4 @@ allocated_storage = 50
 multi_az = false
 backup_retention_period = 7
 deletion_protection = true
+publicly_accessible = true

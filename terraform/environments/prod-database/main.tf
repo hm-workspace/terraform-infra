@@ -17,6 +17,7 @@ module "sqlserver" {
   multi_az                = var.multi_az
   backup_retention_period = var.backup_retention_period
   deletion_protection     = var.deletion_protection
+  publicly_accessible     = var.publicly_accessible
 }
 
 output "sqlserver_endpoint" {
