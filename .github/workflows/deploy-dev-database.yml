@@ -1,0 +1,90 @@
+name: Deploy Dev Database
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'terraform/modules/sqlserver/**'
+      - 'terraform/environments/dev-database/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  TF_VAR_project_name: ${{ vars.DB_PROJECT_NAME || 'hospital-mgmt' }}
+  TF_VAR_vpc_id: ${{ vars.DEV_DB_VPC_ID }}
+  TF_VAR_private_subnet_ids: ${{ vars.DEV_DB_PRIVATE_SUBNET_IDS }}
+  TF_VAR_allowed_cidr_blocks: ${{ vars.DEV_DB_ALLOWED_CIDRS || '["10.20.0.0/16"]' }}
+  TF_VAR_db_username: ${{ vars.DEV_DB_USERNAME || 'adminuser' }}
+  TF_VAR_db_password: ${{ secrets.DEV_DB_PASSWORD }}
+
+jobs:
+  terraform-apply-dev-database:
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate required database variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TF_VAR_vpc_id}" ]; then
+            echo "Missing vars.DEV_DB_VPC_ID"
+            exit 1
+          fi
+          if [ -z "${TF_VAR_private_subnet_ids}" ]; then
+            echo "Missing vars.DEV_DB_PRIVATE_SUBNET_IDS (example: [\"subnet-a\",\"subnet-b\"])"
+            exit 1
+          fi
+          if [ -z "${TF_VAR_db_password}" ]; then
+            echo "Missing secrets.DEV_DB_PASSWORD"
+            exit 1
+          fi
+
+      - name: Terraform init (dev-database)
+        working-directory: terraform/environments/dev-database
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          TF_STATE_KEY: hospital-mgmt/dev-database/terraform.tfstate
+        run: |
+          if [ -n "$TF_STATE_BUCKET" ] && [ -n "$TF_LOCK_TABLE" ]; then
+            terraform init \
+              -backend-config="bucket=$TF_STATE_BUCKET" \
+              -backend-config="key=$TF_STATE_KEY" \
+              -backend-config="region=${{ env.AWS_REGION }}" \
+              -backend-config="dynamodb_table=$TF_LOCK_TABLE" \
+              -backend-config="encrypt=true"
+          else
+            terraform init
+          fi
+
+      - name: Terraform plan (dev-database)
+        working-directory: terraform/environments/dev-database
+        run: terraform plan
+
+      - name: Terraform apply (dev-database)
+        working-directory: terraform/environments/dev-database
+        run: terraform apply -auto-approve
+
+      - name: Show database outputs
+        working-directory: terraform/environments/dev-database
+        run: terraform output

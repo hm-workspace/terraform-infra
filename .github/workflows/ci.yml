@@ -76,3 +76,15 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
+
+      - name: Terraform validate (dev-database)
+        working-directory: terraform/environments/dev-database
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform validate (prod-database)
+        working-directory: terraform/environments/prod-database
+        run: |
+          terraform init -backend=false
+          terraform validate
