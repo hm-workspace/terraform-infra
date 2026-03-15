@@ -4,13 +4,8 @@ on:
   push:
     branches:
       - develop
+      - main
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Image tag to deploy to dev (default: dev-latest).'
-        required: false
-        default: 'dev-latest'
-        type: string
 
 permissions:
   id-token: write
@@ -39,9 +34,21 @@ jobs:
 
       - name: Resolve image tag
         id: resolve_tag
+        shell: bash
         run: |
-          TAG="${{ github.event.inputs.image_tag }}"
-          echo "tag=${TAG:-dev-latest}" >> "$GITHUB_OUTPUT"
+          TAG="${{ vars.DEV_IMAGE_TAG }}"
+          TAG="${TAG:-dev-latest}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Validate image tag format
+        shell: bash
+        run: |
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid Docker image tag: $TAG"
+            echo "Tag must match: ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+            exit 1
+          fi
 
       - name: Terraform init
         working-directory: terraform/environments/dev
