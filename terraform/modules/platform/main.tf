@@ -4,10 +4,10 @@ data "aws_availability_zones" "available" {
 
 locals {
   service_keys = sort(keys(var.services))
-  priorities = {
+  priorities   = {
     for idx, key in local.service_keys : key => key == "api-gateway" ? 49999 : idx + 10
   }
-  common_tags = merge(var.tags, {
+  common_tags  = merge(var.tags, {
     Project     = var.project_name
     Environment = var.environment
     ManagedBy   = "Terraform"
