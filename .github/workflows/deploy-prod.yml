@@ -3,11 +3,11 @@ name: Deploy Prod
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag to deploy (defaults to tag name when triggered by git tag)."
+        description: 'Image tag to deploy (defaults to tag name when triggered by git tag).'
         required: false
         type: string
 
@@ -48,7 +48,7 @@ jobs:
           fi
 
       - name: Terraform init
-        working-directory: infra/terraform/environments/prod
+        working-directory: terraform/environments/prod
         env:
           TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
           TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
@@ -65,8 +65,15 @@ jobs:
             terraform init
           fi
 
+      - name: Terraform plan
+        working-directory: terraform/environments/prod
+        run: |
+          terraform plan \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="image_tag=${{ steps.resolve_tag.outputs.tag }}"
+
       - name: Terraform apply (prod)
-        working-directory: infra/terraform/environments/prod
+        working-directory: terraform/environments/prod
         run: |
           terraform apply -auto-approve \
             -var="aws_region=${{ env.AWS_REGION }}" \
