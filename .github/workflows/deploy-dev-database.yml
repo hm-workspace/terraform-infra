@@ -83,7 +83,7 @@ jobs:
             fi
 
             if [ -z "$PRIVATE_SUBNET_IDS" ]; then
-              PRIVATE_SUBNET_IDS="$(terraform output -json private_subnet_ids)"
+              PRIVATE_SUBNET_IDS="$(terraform output -json private_subnet_ids | python -c \"import json,sys; print(json.dumps(json.load(sys.stdin), separators=(',', ':')))\")"
             fi
 
             popd >/dev/null
@@ -111,10 +111,12 @@ jobs:
               value = (raw_value or "").strip()
               if not value:
                   return default_value
-              parsed = json.loads(value)
-              if not isinstance(parsed, list):
+              if value.startswith("["):
+                parsed = json.loads(value)
+                if not isinstance(parsed, list):
                   raise ValueError(f"Expected JSON array, got: {value}")
-              return parsed
+                return parsed
+              return [item.strip() for item in value.split(",") if item.strip()]
 
           data = {
               "aws_region": os.environ["AWS_REGION"],
