@@ -113,8 +113,14 @@ jobs:
             exit 1
           fi
 
-          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
-          echo "private_subnet_ids=$PRIVATE_SUBNET_IDS" >> "$GITHUB_OUTPUT"
+          {
+            echo "vpc_id<<EOF"
+            echo "$VPC_ID"
+            echo "EOF"
+            echo "private_subnet_ids<<EOF"
+            echo "$PRIVATE_SUBNET_IDS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create Terraform variable file
         shell: bash
