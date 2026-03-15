@@ -83,10 +83,29 @@ jobs:
             fi
 
             if [ -z "$PRIVATE_SUBNET_IDS" ]; then
-              PRIVATE_SUBNET_IDS="$(terraform output -json private_subnet_ids | python -c \"import json,sys; print(json.dumps(json.load(sys.stdin), separators=(',', ':')))\")"
+              PRIVATE_SUBNET_IDS="$(terraform output -json private_subnet_ids | tr -d '\r\n' | sed 's/[[:space:]]//g')"
             fi
 
             popd >/dev/null
+          fi
+
+          if [ -z "$VPC_ID" ] || [ -z "$PRIVATE_SUBNET_IDS" ]; then
+            echo "State-based lookup incomplete. Trying AWS API fallback using dev VPC CIDR 10.20.0.0/16."
+
+            if [ -z "$VPC_ID" ]; then
+              VPC_ID="$(aws ec2 describe-vpcs --region "$AWS_REGION" --filters Name=cidr,Values=10.20.0.0/16 --query 'Vpcs[0].VpcId' --output text 2>/dev/null || true)"
+              if [ "$VPC_ID" = "None" ]; then
+                VPC_ID=""
+              fi
+            fi
+
+            if [ -z "$PRIVATE_SUBNET_IDS" ] && [ -n "$VPC_ID" ]; then
+              PRIVATE_SUBNET_IDS="$(aws ec2 describe-subnets --region "$AWS_REGION" --filters Name=vpc-id,Values="$VPC_ID" Name=tag:Name,Values='*private*' --query 'Subnets[].SubnetId' --output json 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]//g')"
+
+              if [ -z "$PRIVATE_SUBNET_IDS" ] || [ "$PRIVATE_SUBNET_IDS" = "[]" ]; then
+                PRIVATE_SUBNET_IDS="$(aws ec2 describe-subnets --region "$AWS_REGION" --filters Name=vpc-id,Values="$VPC_ID" --query 'Subnets[].SubnetId' --output json 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]//g')"
+              fi
+            fi
           fi
 
           if [ -z "$VPC_ID" ] || [ -z "$PRIVATE_SUBNET_IDS" ]; then
