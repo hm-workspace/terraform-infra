@@ -9,6 +9,15 @@ on:
       - 'terraform/modules/sqlserver/**'
       - 'terraform/environments/dev-database/**'
   workflow_dispatch:
+    inputs:
+      vpc_id:
+        description: Optional VPC ID override for dev database deployment.
+        required: false
+        type: string
+      private_subnet_ids:
+        description: Optional subnet IDs override (JSON array or comma-separated list).
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -21,11 +30,11 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
       DB_PROJECT_NAME: ${{ vars.DB_PROJECT_NAME }}
-      DEV_DB_VPC_ID: ${{ vars.DEV_DB_VPC_ID }}
-      DEV_DB_PRIVATE_SUBNET_IDS: ${{ vars.DEV_DB_PRIVATE_SUBNET_IDS }}
+      DEV_DB_VPC_ID: ${{ github.event.inputs.vpc_id || vars.DEV_DB_VPC_ID }}
+      DEV_DB_PRIVATE_SUBNET_IDS: ${{ github.event.inputs.private_subnet_ids || vars.DEV_DB_PRIVATE_SUBNET_IDS }}
       DEV_DB_ALLOWED_CIDRS: ${{ vars.DEV_DB_ALLOWED_CIDRS }}
       DEV_DB_USERNAME: ${{ vars.DEV_DB_USERNAME }}
-      DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
+      DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD || secrets.DB_PASSWORD || secrets.SQLSERVER_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -45,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DEV_DB_PASSWORD}" ]; then
-            echo "Missing secrets.DEV_DB_PASSWORD"
+            echo "Missing DB password secret. Set one of: DEV_DB_PASSWORD, DB_PASSWORD, SQLSERVER_PASSWORD"
             exit 1
           fi
 
@@ -99,6 +108,14 @@ jobs:
               fi
             fi
 
+            if [ -z "$VPC_ID" ]; then
+              PROJECT_NAME="${DB_PROJECT_NAME:-hospital-mgmt}"
+              VPC_ID="$(aws ec2 describe-vpcs --region "$AWS_REGION" --filters Name=tag:Name,Values="${PROJECT_NAME}-dev-vpc" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || true)"
+              if [ "$VPC_ID" = "None" ]; then
+                VPC_ID=""
+              fi
+            fi
+
             if [ -z "$PRIVATE_SUBNET_IDS" ] && [ -n "$VPC_ID" ]; then
               PRIVATE_SUBNET_IDS="$(aws ec2 describe-subnets --region "$AWS_REGION" --filters Name=vpc-id,Values="$VPC_ID" Name=tag:Name,Values='*private*' --query 'Subnets[].SubnetId' --output json 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]//g')"
 
@@ -109,7 +126,7 @@ jobs:
           fi
 
           if [ -z "$VPC_ID" ] || [ -z "$PRIVATE_SUBNET_IDS" ]; then
-            echo "Unable to resolve dev database network settings. Either deploy terraform/environments/dev first, or set vars.DEV_DB_VPC_ID and vars.DEV_DB_PRIVATE_SUBNET_IDS explicitly."
+            echo "Unable to resolve dev database network settings. Provide workflow_dispatch inputs, set vars.DEV_DB_VPC_ID and vars.DEV_DB_PRIVATE_SUBNET_IDS, or deploy terraform/environments/dev first."
             exit 1
           fi
 
