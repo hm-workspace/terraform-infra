@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
       DB_PROJECT_NAME: ${{ vars.DB_PROJECT_NAME }}
       DEV_DB_VPC_ID: ${{ vars.DEV_DB_VPC_ID }}
       DEV_DB_PRIVATE_SUBNET_IDS: ${{ vars.DEV_DB_PRIVATE_SUBNET_IDS }}
@@ -44,22 +44,58 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${AWS_REGION}" ]; then
-            echo "Missing vars.AWS_REGION"
-            exit 1
-          fi
-          if [ -z "${DEV_DB_VPC_ID}" ]; then
-            echo "Missing vars.DEV_DB_VPC_ID"
-            exit 1
-          fi
-          if [ -z "${DEV_DB_PRIVATE_SUBNET_IDS}" ]; then
-            echo "Missing vars.DEV_DB_PRIVATE_SUBNET_IDS (example: [\"subnet-a\",\"subnet-b\"])"
-            exit 1
-          fi
           if [ -z "${DEV_DB_PASSWORD}" ]; then
             echo "Missing secrets.DEV_DB_PASSWORD"
             exit 1
           fi
+
+      - name: Resolve database network settings
+        id: resolve_network
+        shell: bash
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          TF_STATE_KEY: hospital-mgmt/dev/terraform.tfstate
+        run: |
+          set -euo pipefail
+
+          VPC_ID="${DEV_DB_VPC_ID:-}"
+          PRIVATE_SUBNET_IDS="${DEV_DB_PRIVATE_SUBNET_IDS:-}"
+
+          if [ -z "$VPC_ID" ] || [ -z "$PRIVATE_SUBNET_IDS" ]; then
+            echo "DEV_DB_VPC_ID / DEV_DB_PRIVATE_SUBNET_IDS not set. Resolving from terraform/environments/dev state."
+
+            pushd terraform/environments/dev >/dev/null
+
+            if [ -n "$TF_STATE_BUCKET" ] && [ -n "$TF_LOCK_TABLE" ]; then
+              terraform init \
+                -backend-config="bucket=$TF_STATE_BUCKET" \
+                -backend-config="key=$TF_STATE_KEY" \
+                -backend-config="region=${AWS_REGION}" \
+                -backend-config="dynamodb_table=$TF_LOCK_TABLE" \
+                -backend-config="encrypt=true"
+            else
+              terraform init
+            fi
+
+            if [ -z "$VPC_ID" ]; then
+              VPC_ID="$(terraform output -raw vpc_id)"
+            fi
+
+            if [ -z "$PRIVATE_SUBNET_IDS" ]; then
+              PRIVATE_SUBNET_IDS="$(terraform output -json private_subnet_ids)"
+            fi
+
+            popd >/dev/null
+          fi
+
+          if [ -z "$VPC_ID" ] || [ -z "$PRIVATE_SUBNET_IDS" ]; then
+            echo "Unable to resolve dev database network settings. Either deploy terraform/environments/dev first, or set vars.DEV_DB_VPC_ID and vars.DEV_DB_PRIVATE_SUBNET_IDS explicitly."
+            exit 1
+          fi
+
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "private_subnet_ids=$PRIVATE_SUBNET_IDS" >> "$GITHUB_OUTPUT"
 
       - name: Create Terraform variable file
         shell: bash
@@ -83,8 +119,8 @@ jobs:
           data = {
               "aws_region": os.environ["AWS_REGION"],
               "project_name": (os.environ.get("DB_PROJECT_NAME") or "hospital-mgmt").strip(),
-              "vpc_id": os.environ["DEV_DB_VPC_ID"],
-              "private_subnet_ids": parse_json_list(os.environ.get("DEV_DB_PRIVATE_SUBNET_IDS"), []),
+              "vpc_id": os.environ["RESOLVED_VPC_ID"],
+              "private_subnet_ids": parse_json_list(os.environ.get("RESOLVED_PRIVATE_SUBNET_IDS"), []),
               "allowed_cidr_blocks": parse_json_list(os.environ.get("DEV_DB_ALLOWED_CIDRS"), ["10.20.0.0/16"]),
               "db_username": (os.environ.get("DEV_DB_USERNAME") or "adminuser").strip(),
               "db_password": os.environ["DEV_DB_PASSWORD"],
@@ -92,6 +128,14 @@ jobs:
 
           Path("github.auto.tfvars.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
           PY
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          DB_PROJECT_NAME: ${{ env.DB_PROJECT_NAME }}
+          DEV_DB_ALLOWED_CIDRS: ${{ env.DEV_DB_ALLOWED_CIDRS }}
+          DEV_DB_USERNAME: ${{ env.DEV_DB_USERNAME }}
+          DEV_DB_PASSWORD: ${{ env.DEV_DB_PASSWORD }}
+          RESOLVED_VPC_ID: ${{ steps.resolve_network.outputs.vpc_id }}
+          RESOLVED_PRIVATE_SUBNET_IDS: ${{ steps.resolve_network.outputs.private_subnet_ids }}
 
       - name: Terraform init (dev-database)
         working-directory: terraform/environments/dev-database
