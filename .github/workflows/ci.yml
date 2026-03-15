@@ -19,7 +19,15 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform format check
-        run: terraform fmt -check -recursive terraform
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! FMT_OUTPUT="$(terraform fmt -check -recursive terraform 2>&1)"; then
+            echo "Terraform formatting check failed. Files needing formatting:"
+            echo "$FMT_OUTPUT"
+            exit 1
+          fi
+          echo "Terraform formatting check passed."
 
       - name: Terraform validate (dev)
         working-directory: terraform/environments/dev
