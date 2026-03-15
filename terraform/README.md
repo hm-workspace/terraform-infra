@@ -9,12 +9,16 @@
 - ECR repositories (one per service).
 - CloudWatch log groups.
 - ECS task definitions and services for all microservices.
+- AWS RDS SQL Server infrastructure for application databases.
 
 ## Folder Layout
 
-- `infra/terraform/modules/platform`: reusable platform module.
-- `infra/terraform/environments/dev`: development stack.
-- `infra/terraform/environments/prod`: production stack.
+- `terraform/modules/platform`: reusable microservices platform module.
+- `terraform/modules/sqlserver`: reusable RDS SQL Server module.
+- `terraform/environments/dev`: development microservices stack.
+- `terraform/environments/prod`: production microservices stack.
+- `terraform/environments/dev-database`: development SQL Server stack.
+- `terraform/environments/prod-database`: production SQL Server stack.
 
 ## Usage
 
@@ -32,6 +36,26 @@ terraform apply -var-file=terraform.tfvars
 
 ```bash
 cd infra/terraform/environments/prod
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform plan -var-file=terraform.tfvars
+terraform apply -var-file=terraform.tfvars
+```
+
+### Dev Database
+
+```bash
+cd terraform/environments/dev-database
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform plan -var-file=terraform.tfvars
+terraform apply -var-file=terraform.tfvars
+```
+
+### Prod Database
+
+```bash
+cd terraform/environments/prod-database
 cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform plan -var-file=terraform.tfvars
