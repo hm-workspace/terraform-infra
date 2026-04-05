@@ -1,13 +1,6 @@
 name: Deploy Dev Database
 
 on:
-  push:
-    branches:
-      - develop
-      - main
-    paths:
-      - 'terraform/modules/sqlserver/**'
-      - 'terraform/environments/dev-database/**'
   workflow_dispatch:
     inputs:
       vpc_id:

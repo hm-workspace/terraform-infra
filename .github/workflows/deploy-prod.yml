@@ -1,9 +1,6 @@
 name: Deploy Prod
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       image_tag:
